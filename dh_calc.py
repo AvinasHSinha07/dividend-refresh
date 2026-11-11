@@ -83,6 +83,10 @@ def window_start(data, window):
     """Turn a window name into a starting timestamp."""
     times = [t for t, c in zip(data["times"], data["closes"]) if c]
     last = datetime.fromtimestamp(times[-1], tz=timezone.utc)
+    if window == "1m":
+        return int((last - timedelta(days=30)).timestamp())
+    if window == "3m":
+        return int((last - timedelta(days=91)).timestamp())
     if window == "1y":
         return int((last - timedelta(days=365)).timestamp())
     if window == "ytd":   # last close of the previous year
