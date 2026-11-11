@@ -16,7 +16,7 @@ import dh_calc
 import dh_scrape
 
 # ---- SETTINGS (change here only) -------------------------------------------
-WINDOW = "1y"            # "1y", "ytd" or "inception"
+WINDOW = "1m"           # "1y", "ytd" or "inception"
 YIELD_RANGE = (0, 300)   # sanity limits (%): outside this = treated as a bad read
 # -----------------------------------------------------------------------------
 
