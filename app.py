@@ -10,6 +10,7 @@ import threading
 import pandas as pd
 import requests
 import streamlit as st
+import dh_scrape
 
 # 1) Copy secrets into environment variables BEFORE importing refresh.py,
 #    because refresh.py reads them when it is imported.
@@ -104,3 +105,23 @@ try:
         st.dataframe(df)
 except Exception as e:
     st.error(f"Could not read the sheet: {type(e).__name__}: {e}")
+
+
+# ---- Debug: what HTML does THIS host receive? -------------------------------
+with st.expander("Debug: inspect the page this host receives"):
+    dbg_ticker = st.text_input("Ticker to inspect", "CHPY")
+    if st.button("Run debug"):
+        try:
+            import re
+            from bs4 import BeautifulSoup
+            html = dh_scrape.fetch_html(dbg_ticker.strip().upper())
+            soup = BeautifulSoup(html, "lxml")
+            text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+            st.write(f"HTML length: {len(html)} | title: "
+                     f"{soup.title.get_text(strip=True) if soup.title else None}")
+            st.write("'Stock Metrics' present:", "Stock Metrics" in text,
+                     "| 'Dividend Metrics' present:", "Dividend Metrics" in text)
+            st.code(text[600:2000])
+            st.write("Parsed:", dh_scrape.parse_html(html))
+        except Exception as e:
+            st.error(f"{type(e).__name__}: {e}")
