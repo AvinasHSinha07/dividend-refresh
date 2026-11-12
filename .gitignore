@@ -1,0 +1,10 @@
+
+service_account.json
+.env
+token
+token.txt
+venv/
+__pycache__/
+*_output.txt
+*.html
+*_chart.json
