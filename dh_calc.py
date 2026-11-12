@@ -25,10 +25,16 @@ HEADERS = {
 def fetch_chart(ticker):
     """Download {times, closes, dividends} for a US ticker."""
     url = f"https://dividendhistory.org/chart/usa/{ticker}.json"
-    r = requests.get(url, headers={**HEADERS,
-                     "Referer": f"https://dividendhistory.org/payout/{ticker}/"}, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    referer = {"Referer": f"https://dividendhistory.org/payout/{ticker}/"}
+    try:
+        from curl_cffi import requests as cffi
+        r = cffi.get(url, impersonate="chrome", headers=referer, timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        r = requests.get(url, headers={**HEADERS, **referer}, timeout=30)
+        r.raise_for_status()
+        return r.json()
 
 
 def to_date(ts):

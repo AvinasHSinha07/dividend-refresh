@@ -23,10 +23,31 @@ HEADERS = {
 
 
 def fetch_html(ticker):
-    r = requests.get(f"https://dividendhistory.org/payout/{ticker}/",
-                     headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    return r.text
+    """
+    Fetch the payout page. Tries a Chrome-impersonating request first and
+    falls back to plain requests. Prefers whichever response contains the
+    'Stock Metrics' block, because some hosts get a reduced page without it.
+    """
+    url = f"https://dividendhistory.org/payout/{ticker}/"
+    results = []
+
+    try:
+        from curl_cffi import requests as cffi
+        r = cffi.get(url, impersonate="chrome", timeout=30)
+        r.raise_for_status()
+        results.append(r.text)
+    except Exception:
+        pass
+
+    if not results or "Stock Metrics" not in results[0]:
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        results.append(r.text)
+
+    for html in results:
+        if "Stock Metrics" in html:
+            return html
+    return results[0]          # none had the block: caller will flag it
 
 
 def _num(s):

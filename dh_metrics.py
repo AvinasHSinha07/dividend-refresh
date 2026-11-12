@@ -38,6 +38,9 @@ def fetch_ticker_metrics(ticker):
     page = None
     try:
         page = dh_scrape.parse_html(dh_scrape.fetch_html(ticker))
+        if page["updated_date"] is None or page["last_close"] is None:
+            warnings.append("Page had no price block; Price Change / Total Return "
+                            "may be one day behind the site")
         y = page["current_yield_pct"]
         if y is None:
             warnings.append("Current Yield not found on page (layout may have changed)")
