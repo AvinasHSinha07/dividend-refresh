@@ -1,16 +1,17 @@
 """
-dh_calc.py - calculation module (Step 6)
+dh_calc.py - calculation module
 
-Downloads the chart JSON for a ticker and computes:
-  - Price Change %           over a chosen window
-  - Total Return %           over the same window, dividends reinvested
-  - Dividend Amount          most recent confirmed payout
-Method for total return matches the site's own toggle:
+Downloads the chart JSON for a ticker and computes, over ONE chosen window:
+  - Price Change %      first close in window -> latest close
+  - Total Return %      same window, dividends reinvested
+  - Dividends $         total dividends paid per share inside the window
+Total return uses the site's own method:
   "Reinvest dividends at the ex-dividend date closing price".
 """
 import sys
 from bisect import bisect_right
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 
 import requests
 
@@ -34,14 +35,45 @@ def to_date(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
 
 
+def round_half_up(x, places=2):
+    """Round like the site does (12.395 -> 12.40). Python's round() gives 12.39."""
+    q = Decimal(1).scaleb(-places)                     # 0.01 for places=2
+    return float(Decimal(str(x)).quantize(q, rounding=ROUND_HALF_UP))
+
+
+def extend_with_last_close(data, updated_date, last_close):
+    """
+    The chart JSON can lag the page by a day. If the page's 'Updated' date is
+    newer than the JSON's last date, append the page's Last Close as one more
+    price point, rounded half-up to 2 decimals like every price the site's
+    chart uses. Returns True if a point was added.
+    """
+    if not updated_date or not last_close:
+        return False
+    y, m, d = (int(x) for x in updated_date.split("-"))
+    # JSON timestamps sit at about 04:00 UTC on the trading date
+    ts = int(datetime(y, m, d, 4, 0, tzinfo=timezone.utc).timestamp())
+    valid = [t for t, c in zip(data["times"], data["closes"]) if c]
+    if not valid:
+        return False
+    if to_date(ts) <= to_date(max(valid)):
+        return False
+    data["times"].append(ts)
+    data["closes"].append(round_half_up(last_close, 2))
+    return True
+
+
 def compute_window(data, start_ts):
     """
-    Price change and total return from the last close on/before start_ts
-    to the latest close. If history is shorter than the window, we start at
-    the first available close and set short_history=True.
+    Price change, total return and dividends paid, measured from the last
+    close on/before start_ts to the latest close. If the history is shorter
+    than the window, we start at the first available close and set
+    short_history=True.
     """
-    # Drop any rows with a missing close so the math never hits None
+    # Drop rows with a missing close so the math never hits None
     pairs = [(t, c) for t, c in zip(data["times"], data["closes"]) if c]
+    if not pairs:
+        raise ValueError("no price data")
     times = [t for t, _ in pairs]
     closes = [c for _, c in pairs]
 
@@ -52,11 +84,14 @@ def compute_window(data, start_ts):
     start_price, end_price = closes[i0], closes[-1]
     price_change = end_price / start_price - 1
 
-    # Total return: each dividend buys more shares at that day's close
+    # Each dividend inside the window: add to the running total AND buy more
+    # shares at that day's close (for total return).
     shares = 1.0
-    d = data["dividends"]
+    dividends_total = 0.0
+    d = data.get("dividends") or {"exDates": [], "amounts": []}
     for ex, amt in zip(d["exDates"], d["amounts"]):
         if times[i0] < ex <= times[-1]:
+            dividends_total += amt
             j = bisect_right(times, ex) - 1       # close on (or just before) ex-date
             if j >= 0:
                 shares *= 1 + amt / closes[j]
@@ -69,14 +104,9 @@ def compute_window(data, start_ts):
         "end_price": end_price,
         "price_change_pct": round(price_change * 100, 2),
         "total_return_pct": round(total_return * 100, 2),
+        "dividends_total": round(dividends_total, 4),
         "short_history": short_history,
     }
-
-
-def latest_dividend(data):
-    """Most recent confirmed dividend (amount, ex-date)."""
-    d = data["dividends"]
-    return d["amounts"][-1], to_date(d["exDates"][-1])
 
 
 def window_start(data, window):
@@ -89,7 +119,7 @@ def window_start(data, window):
         return int((last - timedelta(days=91)).timestamp())
     if window == "1y":
         return int((last - timedelta(days=365)).timestamp())
-    if window == "ytd":   # last close of the previous year
+    if window == "ytd":   # from Jan 1 of the current year
         return int(datetime(last.year, 1, 1, tzinfo=timezone.utc).timestamp())
     if window == "inception":
         return times[0]
@@ -97,16 +127,14 @@ def window_start(data, window):
 
 
 if __name__ == "__main__":
+    # Usage: python dh_calc.py CRCO   (raw JSON only, no page-lag fix)
     ticker = sys.argv[1] if len(sys.argv) > 1 else "CHPY"
     data = fetch_chart(ticker)
-
-    amt, ex = latest_dividend(data)
-    print(f"{ticker}  latest confirmed dividend: ${amt}  (ex-date {ex})\n")
-
-    for w in ("1y", "ytd", "inception"):
+    print(f"{ticker}\n")
+    for w in ("1m", "3m", "1y", "ytd", "inception"):
         r = compute_window(data, window_start(data, w))
         note = "  (history shorter than window)" if r["short_history"] else ""
         print(f"[{w:9}] {r['start_date']} -> {r['end_date']}  "
-              f"${r['start_price']} -> ${r['end_price']}  "
               f"Price Change {r['price_change_pct']}%  "
-              f"Total Return {r['total_return_pct']}%{note}")
+              f"Total Return {r['total_return_pct']}%  "
+              f"Dividends ${r['dividends_total']}{note}")

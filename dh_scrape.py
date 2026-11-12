@@ -1,13 +1,12 @@
 """
-dh_scrape.py - HTML scraping module (Step 7)
+dh_scrape.py - HTML scraping module
 
 Reads from https://dividendhistory.org/payout/<TICKER>/ :
-  - Current Yield          (header block, "Dividend Metrics ... Yield 41.96%")
-  - Dividend Amount        (newest CONFIRMED row of the dividend table)
-Also returns last close and annual dividend as cross-checks.
-
-Each field is returned as None if it can't be found, so the caller can
-keep the old sheet value and flag a warning (never silently write junk).
+  - Current Yield     (header block, "Dividend Metrics ... Yield 41.96%")
+  - Last Close        (header block) and the "Updated" date it belongs to
+  - Dividend Amount   (newest CONFIRMED row of the dividend table; cross-check only)
+Each field is None if it can't be found, so the caller can keep the old
+sheet value and flag a warning (never silently write junk).
 """
 import re
 import sys
@@ -42,12 +41,18 @@ def parse_html(html):
     soup = BeautifulSoup(html, "lxml")
     text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
     out = {"current_yield_pct": None, "dividend_amount": None,
-           "dividend_ex_date": None, "last_close": None, "annual_dividend": None}
+           "dividend_ex_date": None, "last_close": None,
+           "updated_date": None, "annual_dividend": None}
 
     # Header block, e.g. "... Dividend Metrics Yield 41.96% Yield on Cost ..."
     m = re.search(r"Dividend Metrics\s+Yield\s+(-?[\d,.]+)\s*%", text)
     if m:
         out["current_yield_pct"] = _num(m.group(1))
+
+    # "Stock Metrics Updated: 2026-11-11 Last Close $10.1481 (+2.40%)"
+    m = re.search(r"Stock Metrics\s+Updated:\s*(\d{4}-\d{2}-\d{2})", text)
+    if m:
+        out["updated_date"] = m.group(1)
 
     m = re.search(r"Last Close\s+\$?\s*([\d,.]+)", text)
     if m:
@@ -57,7 +62,7 @@ def parse_html(html):
     if m:
         out["annual_dividend"] = _num(m.group(1))
 
-    # Dividend table: columns = Ex-Date | Payout Date | Cash Amount | Change/Status
+    # Dividend table: Ex-Date | Payout Date | Cash Amount | Change/Status
     table = soup.find("table", id="dividend-table")
     if table:
         for tr in table.find_all("tr"):
